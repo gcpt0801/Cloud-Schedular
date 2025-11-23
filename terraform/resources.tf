@@ -95,7 +95,7 @@ resource "google_cloudfunctions2_function" "mig_scheduler" {
 
   build_config {
     runtime     = "python311"
-    entry_point = "vm_scheduler"
+    entry_point = "mig_scheduler"
 
     source {
       storage_source {
