@@ -60,11 +60,11 @@ jobs:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
       - name: Terraform Init
-        working-directory: ./Cloud-Schedular/terraform
+        working-directory: ./terraform
         run: terraform init
 
       - name: Terraform Plan Destroy
-        working-directory: ./Cloud-Schedular/terraform
+        working-directory: ./terraform
         run: |
           echo "📋 Planning destruction..."
           terraform plan -destroy -out=destroy.tfplan
@@ -77,14 +77,14 @@ jobs:
           sleep 10
 
       - name: Terraform Destroy
-        working-directory: ./Cloud-Schedular/terraform
+        working-directory: ./terraform
         run: |
           echo "🗑️  Destroying infrastructure..."
           terraform apply -auto-approve destroy.tfplan
           echo "✅ Infrastructure destroyed successfully"
 
       - name: Cleanup State (Optional)
-        working-directory: ./Cloud-Schedular/terraform
+        working-directory: ./terraform
         run: |
           echo "🧹 Cleaning up state files..."
           rm -f destroy.tfplan
