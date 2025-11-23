@@ -1,6 +1,6 @@
 """
-VM Scheduler Cloud Function
-Handles Pub/Sub messages to scale up/down Google Cloud VMs
+MIG Scheduler Cloud Function
+Handles Pub/Sub messages to scale up/down Google Cloud Managed Instance Groups
 """
 
 import os
@@ -14,122 +14,72 @@ import functions_framework
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class VMScheduler:
-    """Manages VM operations for scaling"""
+
+class MIGScheduler:
+    """Manages MIG operations for scaling"""
     
     def __init__(self, project_id):
         self.project_id = project_id or os.environ.get('GCP_PROJECT')
-        self.instances_client = compute_v1.InstancesClient()
+        self.mig_client = compute_v1.RegionInstanceGroupManagersClient()
         
-    def get_instances_by_labels(self, zones, labels):
-        """Get all instances matching specified labels"""
-        instances = []
-        
-        for zone in zones:
-            try:
-                request = compute_v1.ListInstancesRequest(
-                    project=self.project_id,
-                    zone=zone
-                )
-                
-                for instance in self.instances_client.list(request=request):
-                    # Check if instance has matching labels
-                    if self._matches_labels(instance.labels, labels):
-                        instances.append({
-                            'name': instance.name,
-                            'zone': zone,
-                            'status': instance.status
-                        })
-                        
-            except Exception as e:
-                logger.error(f"Error listing instances in zone {zone}: {e}")
-                
-        return instances
-    
-    def _matches_labels(self, instance_labels, target_labels):
-        """Check if instance labels match target labels"""
-        if not instance_labels:
-            return False
-            
-        for label in target_labels:
-            key = label.get('key')
-            value = label.get('value')
-            if instance_labels.get(key) != value:
-                return False
-                
-        return True
-    
-    def stop_instance(self, zone, instance_name):
-        """Stop a VM instance"""
+    def get_mig_info(self, region, mig_name):
+        """Get MIG information"""
         try:
-            request = compute_v1.StopInstanceRequest(
+            request = compute_v1.GetRegionInstanceGroupManagerRequest(
                 project=self.project_id,
-                zone=zone,
-                instance=instance_name
+                region=region,
+                instance_group_manager=mig_name
+            )
+            mig = self.mig_client.get(request=request)
+            return {
+                'name': mig.name,
+                'region': region,
+                'target_size': mig.target_size,
+                'status': mig.status.is_stable
+            }
+        except Exception as e:
+            logger.error(f"Error getting MIG {mig_name} in region {region}: {e}")
+            return None
+    
+    def scale_down_mig(self, region, mig_name):
+        """Scale down MIG to 0 instances"""
+        try:
+            request = compute_v1.ResizeRegionInstanceGroupManagerRequest(
+                project=self.project_id,
+                region=region,
+                instance_group_manager=mig_name,
+                size=0
             )
             
-            operation = self.instances_client.stop(request=request)
-            logger.info(f"Stopping instance {instance_name} in zone {zone}")
-            return {'status': 'success', 'operation': operation.name}
+            operation = self.mig_client.resize(request=request)
+            logger.info(f"Scaling down MIG {mig_name} to 0 instances in region {region}")
+            return {'status': 'success', 'operation': operation.name, 'target_size': 0}
             
         except Exception as e:
-            logger.error(f"Error stopping instance {instance_name}: {e}")
+            logger.error(f"Error scaling down MIG {mig_name}: {e}")
             return {'status': 'error', 'message': str(e)}
     
-    def start_instance(self, zone, instance_name):
-        """Start a VM instance"""
+    def scale_up_mig(self, region, mig_name, target_size):
+        """Scale up MIG to specified target size"""
         try:
-            request = compute_v1.StartInstanceRequest(
+            request = compute_v1.ResizeRegionInstanceGroupManagerRequest(
                 project=self.project_id,
-                zone=zone,
-                instance=instance_name
+                region=region,
+                instance_group_manager=mig_name,
+                size=target_size
             )
             
-            operation = self.instances_client.start(request=request)
-            logger.info(f"Starting instance {instance_name} in zone {zone}")
-            return {'status': 'success', 'operation': operation.name}
+            operation = self.mig_client.resize(request=request)
+            logger.info(f"Scaling up MIG {mig_name} to {target_size} instances in region {region}")
+            return {'status': 'success', 'operation': operation.name, 'target_size': target_size}
             
         except Exception as e:
-            logger.error(f"Error starting instance {instance_name}: {e}")
-            return {'status': 'error', 'message': str(e)}
-    
-    def suspend_instance(self, zone, instance_name):
-        """Suspend a VM instance"""
-        try:
-            request = compute_v1.SuspendInstanceRequest(
-                project=self.project_id,
-                zone=zone,
-                instance=instance_name
-            )
-            
-            operation = self.instances_client.suspend(request=request)
-            logger.info(f"Suspending instance {instance_name} in zone {zone}")
-            return {'status': 'success', 'operation': operation.name}
-            
-        except Exception as e:
-            logger.error(f"Error suspending instance {instance_name}: {e}")
-            return {'status': 'error', 'message': str(e)}
-    
-    def resume_instance(self, zone, instance_name):
-        """Resume a suspended VM instance"""
-        try:
-            request = compute_v1.ResumeInstanceRequest(
-                project=self.project_id,
-                zone=zone,
-                instance=instance_name
-            )
-            
-            operation = self.instances_client.resume(request=request)
-            logger.info(f"Resuming instance {instance_name} in zone {zone}")
-            return {'status': 'success', 'operation': operation.name}
-            
-        except Exception as e:
-            logger.error(f"Error resuming instance {instance_name}: {e}")
+            logger.error(f"Error scaling up MIG {mig_name}: {e}")
             return {'status': 'error', 'message': str(e)}
 
 
-def process_scale_action(action, project_id=None, vm_labels=None, zones=None):
-    """Process scale up or scale down action"""
+def process_scale_action(action, project_id=None, mig_name=None, region=None, scale_up_size=None):
+    """Process scale up or scale down action for MIG"""
     
     # Get project ID from environment
     if not project_id:
@@ -139,70 +89,64 @@ def process_scale_action(action, project_id=None, vm_labels=None, zones=None):
         logger.error('Project ID not configured')
         return {'error': 'Project ID not configured'}
     
-    scheduler = VMScheduler(project_id)
-    results = []
+    # Get MIG name and region from environment if not provided
+    if not mig_name:
+        mig_name = os.environ.get('MIG_NAME', 'oracle-linux-mig')
     
-    # Get VM labels and zones from environment variables if not provided
-    if not vm_labels:
-        vm_labels_str = os.environ.get('VM_LABELS', 'auto-schedule:true')
-        vm_labels = []
-        for label in vm_labels_str.split(','):
-            if ':' in label:
-                key, value = label.split(':', 1)
-                vm_labels.append({'key': key.strip(), 'value': value.strip()})
+    if not region:
+        region = os.environ.get('MIG_REGION', 'us-central1')
     
-    if not zones:
-        zones_str = os.environ.get('VM_ZONES', 'us-central1-a,us-central1-b')
-        zones = [z.strip() for z in zones_str.split(',')]
+    scheduler = MIGScheduler(project_id)
     
-    # Get instances using label-based discovery
-    instances = scheduler.get_instances_by_labels(zones, vm_labels)
+    # Get current MIG info
+    mig_info = scheduler.get_mig_info(region, mig_name)
+    if not mig_info:
+        logger.error(f'MIG {mig_name} not found in region {region}')
+        return {'error': f'MIG {mig_name} not found'}
     
-    if not instances:
-        logger.warning('No instances found matching the specified labels')
-        return {'processed': 0, 'results': [], 'message': 'No instances found'}
+    logger.info(f'Current MIG size: {mig_info["target_size"]}')
     
-    # Perform action on each instance
-    for instance in instances:
-        zone = instance.get('zone')
-        name = instance.get('name')
-        status = instance.get('status')
+    # Perform action
+    if action == 'scale_down':
+        if mig_info['target_size'] == 0:
+            logger.info(f'MIG {mig_name} already scaled down to 0')
+            return {'message': 'MIG already scaled down', 'target_size': 0}
         
-        # Skip if instance is already in desired state
-        if action == 'scale_down' and status in ['STOPPED', 'TERMINATED', 'SUSPENDED']:
-            logger.info(f"Instance {name} already stopped/suspended, skipping")
-            continue
-        elif action == 'scale_up' and status == 'RUNNING':
-            logger.info(f"Instance {name} already running, skipping")
-            continue
-        
-        if action == 'scale_down':
-            action_type = os.environ.get('SCALE_DOWN_ACTION', 'STOP')
-            if action_type == 'SUSPEND':
-                result = scheduler.suspend_instance(zone, name)
-            else:
-                result = scheduler.stop_instance(zone, name)
-        elif action == 'scale_up':
-            action_type = os.environ.get('SCALE_UP_ACTION', 'START')
-            if action_type == 'RESUME':
-                result = scheduler.resume_instance(zone, name)
-            else:
-                result = scheduler.start_instance(zone, name)
-        else:
-            result = {'status': 'error', 'message': f'Unknown action: {action}'}
-        
-        results.append({
-            'instance': name,
-            'zone': zone,
-            'action': action,
+        result = scheduler.scale_down_mig(region, mig_name)
+        return {
+            'action': 'scale_down',
+            'mig': mig_name,
+            'region': region,
+            'previous_size': mig_info['target_size'],
+            'new_size': 0,
             'result': result
-        })
+        }
     
-    return {'processed': len(results), 'results': results}
+    elif action == 'scale_up':
+        # Get target size for scale up
+        if not scale_up_size:
+            scale_up_size = int(os.environ.get('MIG_SCALE_UP_SIZE', '3'))
+        
+        if mig_info['target_size'] >= scale_up_size:
+            logger.info(f'MIG {mig_name} already at or above target size {scale_up_size}')
+            return {'message': 'MIG already scaled up', 'target_size': mig_info['target_size']}
+        
+        result = scheduler.scale_up_mig(region, mig_name, scale_up_size)
+        return {
+            'action': 'scale_up',
+            'mig': mig_name,
+            'region': region,
+            'previous_size': mig_info['target_size'],
+            'new_size': scale_up_size,
+            'result': result
+        }
+    
+    else:
+        return {'error': f'Unknown action: {action}'}
 
 
 @functions_framework.cloud_event
-def vm_scheduler(cloud_event):
+def mig_scheduler(cloud_event):
     """
     Cloud Function triggered by Pub/Sub.
     Args:
@@ -217,16 +161,17 @@ def vm_scheduler(cloud_event):
         logger.error(f'Error decoding message: {e}')
         data = {}
     
-    # Get action from message (default to scale_down for backward compatibility)
+    # Get parameters from message
     action = data.get('action', 'scale_down')
     project_id = data.get('project_id')
-    vm_labels = data.get('vm_labels')
-    zones = data.get('zones')
+    mig_name = data.get('mig_name')
+    region = data.get('region')
+    scale_up_size = data.get('scale_up_size')
     
-    logger.info(f'Processing action: {action}')
+    logger.info(f'Processing action: {action} for MIG: {mig_name or os.environ.get("MIG_NAME")}')
     
     # Process the action
-    result = process_scale_action(action, project_id, vm_labels, zones)
+    result = process_scale_action(action, project_id, mig_name, region, scale_up_size)
     
     logger.info(f'Action completed: {result}')
     

@@ -17,36 +17,36 @@ resource "google_project_service" "required_apis" {
 
 # Create Pub/Sub topics for scale up and scale down
 resource "google_pubsub_topic" "scale_down" {
-  name = "vm-scale-down"
+  name = "mig-scale-down"
   
   depends_on = [google_project_service.required_apis]
 }
 
 resource "google_pubsub_topic" "scale_up" {
-  name = "vm-scale-up"
+  name = "mig-scale-up"
   
   depends_on = [google_project_service.required_apis]
 }
 
 # Service account for Cloud Function
-resource "google_service_account" "vm_scheduler" {
-  account_id   = "vm-scheduler-sa"
-  display_name = "VM Scheduler Service Account"
-  description  = "Service account for VM scheduler Cloud Function"
+resource "google_service_account" "mig_scheduler" {
+  account_id   = "mig-scheduler-sa"
+  display_name = "MIG Scheduler Service Account"
+  description  = "Service account for MIG scheduler Cloud Function"
 }
 
-# Grant Compute Instance Admin role to service account
+# Grant Compute Instance Admin role to service account (required for MIG resize)
 resource "google_project_iam_member" "compute_admin" {
   project = var.project_id
   role    = "roles/compute.instanceAdmin.v1"
-  member  = "serviceAccount:${google_service_account.vm_scheduler.email}"
+  member  = "serviceAccount:${google_service_account.mig_scheduler.email}"
 }
 
 # Grant Compute Viewer role to service account
 resource "google_project_iam_member" "compute_viewer" {
   project = var.project_id
   role    = "roles/compute.viewer"
-  member  = "serviceAccount:${google_service_account.vm_scheduler.email}"
+  member  = "serviceAccount:${google_service_account.mig_scheduler.email}"
 }
 
 # Create GCS bucket for Cloud Function source code
@@ -110,14 +110,13 @@ resource "google_cloudfunctions2_function" "vm_scheduler" {
     min_instance_count    = 0
     available_memory      = "256Mi"
     timeout_seconds       = var.function_timeout
-    service_account_email = google_service_account.vm_scheduler.email
+    service_account_email = google_service_account.mig_scheduler.email
     
     environment_variables = {
       GCP_PROJECT        = var.project_id
-      VM_LABELS          = var.vm_labels
-      VM_ZONES           = var.vm_zones
-      SCALE_DOWN_ACTION  = var.scale_down_action
-      SCALE_UP_ACTION    = var.scale_up_action
+      MIG_NAME           = var.mig_name
+      MIG_REGION         = var.mig_region
+      MIG_SCALE_UP_SIZE  = tostring(var.mig_scale_up_size)
     }
   }
   
@@ -126,7 +125,7 @@ resource "google_cloudfunctions2_function" "vm_scheduler" {
     event_type            = "google.cloud.pubsub.topic.v1.messagePublished"
     pubsub_topic          = google_pubsub_topic.scale_down.id
     retry_policy          = "RETRY_POLICY_RETRY"
-    service_account_email = google_service_account.vm_scheduler.email
+    service_account_email = google_service_account.mig_scheduler.email
   }
   
   depends_on = [
@@ -137,14 +136,14 @@ resource "google_cloudfunctions2_function" "vm_scheduler" {
 }
 
 # Second function instance for scale up (shares same code, different trigger)
-resource "google_cloudfunctions2_function" "vm_scheduler_scale_up" {
-  name        = "vm-scheduler-scale-up"
+resource "google_cloudfunctions2_function" "mig_scheduler_scale_up" {
+  name        = "mig-scheduler-scale-up"
   location    = var.region
-  description = "Automated VM scheduler for scale up"
+  description = "Automated MIG scheduler for scale up"
   
   build_config {
     runtime     = "python311"
-    entry_point = "vm_scheduler"
+    entry_point = "mig_scheduler"
     
     source {
       storage_source {
@@ -159,14 +158,13 @@ resource "google_cloudfunctions2_function" "vm_scheduler_scale_up" {
     min_instance_count    = 0
     available_memory      = "256Mi"
     timeout_seconds       = var.function_timeout
-    service_account_email = google_service_account.vm_scheduler.email
+    service_account_email = google_service_account.mig_scheduler.email
     
     environment_variables = {
       GCP_PROJECT        = var.project_id
-      VM_LABELS          = var.vm_labels
-      VM_ZONES           = var.vm_zones
-      SCALE_DOWN_ACTION  = var.scale_down_action
-      SCALE_UP_ACTION    = var.scale_up_action
+      MIG_NAME           = var.mig_name
+      MIG_REGION         = var.mig_region
+      MIG_SCALE_UP_SIZE  = tostring(var.mig_scale_up_size)
     }
   }
   
@@ -175,7 +173,7 @@ resource "google_cloudfunctions2_function" "vm_scheduler_scale_up" {
     event_type            = "google.cloud.pubsub.topic.v1.messagePublished"
     pubsub_topic          = google_pubsub_topic.scale_up.id
     retry_policy          = "RETRY_POLICY_RETRY"
-    service_account_email = google_service_account.vm_scheduler.email
+    service_account_email = google_service_account.mig_scheduler.email
   }
   
   depends_on = [
@@ -205,10 +203,10 @@ resource "google_pubsub_topic_iam_member" "scale_up_publisher" {
   member = "serviceAccount:${google_service_account.scheduler.email}"
 }
 
-# Cloud Scheduler job for scaling down VMs
+# Cloud Scheduler job for scaling down MIG
 resource "google_cloud_scheduler_job" "scale_down" {
-  name             = "vm-scale-down-weekend"
-  description      = "Scale down VMs for the weekend"
+  name             = "mig-scale-down-weekend"
+  description      = "Scale down MIG for the weekend"
   schedule         = var.scale_down_schedule
   time_zone        = var.timezone
   attempt_deadline = "320s"
@@ -218,6 +216,8 @@ resource "google_cloud_scheduler_job" "scale_down" {
     data       = base64encode(jsonencode({
       action     = "scale_down"
       project_id = var.project_id
+      mig_name   = var.mig_name
+      region     = var.mig_region
     }))
   }
   
@@ -227,10 +227,10 @@ resource "google_cloud_scheduler_job" "scale_down" {
   ]
 }
 
-# Cloud Scheduler job for scaling up VMs
+# Cloud Scheduler job for scaling up MIG
 resource "google_cloud_scheduler_job" "scale_up" {
-  name             = "vm-scale-up-weekday"
-  description      = "Scale up VMs for the weekday"
+  name             = "mig-scale-up-weekday"
+  description      = "Scale up MIG for the weekday"
   schedule         = var.scale_up_schedule
   time_zone        = var.timezone
   attempt_deadline = "320s"
@@ -238,8 +238,11 @@ resource "google_cloud_scheduler_job" "scale_up" {
   pubsub_target {
     topic_name = google_pubsub_topic.scale_up.id
     data       = base64encode(jsonencode({
-      action     = "scale_up"
-      project_id = var.project_id
+      action        = "scale_up"
+      project_id    = var.project_id
+      mig_name      = var.mig_name
+      region        = var.mig_region
+      scale_up_size = var.mig_scale_up_size
     }))
   }
   

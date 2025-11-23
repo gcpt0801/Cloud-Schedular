@@ -9,37 +9,26 @@ variable "region" {
   default     = "us-central1"
 }
 
-variable "vm_labels" {
-  description = "Labels to identify VMs to manage (format: key:value,key:value)"
+variable "mig_name" {
+  description = "Name of the Managed Instance Group to scale"
   type        = string
-  default     = "auto-schedule:true"
+  default     = "oracle-linux-mig"
 }
 
-variable "vm_zones" {
-  description = "Comma-separated list of zones to check for VMs"
+variable "mig_region" {
+  description = "Region where the MIG is located"
   type        = string
-  default     = "us-central1-a,us-central1-b,us-east1-b"
+  default     = "us-central1"
 }
 
-variable "scale_down_action" {
-  description = "Action to perform when scaling down (STOP or SUSPEND)"
-  type        = string
-  default     = "STOP"
+variable "mig_scale_up_size" {
+  description = "Target size when scaling up the MIG"
+  type        = number
+  default     = 3
   
   validation {
-    condition     = contains(["STOP", "SUSPEND"], var.scale_down_action)
-    error_message = "scale_down_action must be either STOP or SUSPEND"
-  }
-}
-
-variable "scale_up_action" {
-  description = "Action to perform when scaling up (START or RESUME)"
-  type        = string
-  default     = "START"
-  
-  validation {
-    condition     = contains(["START", "RESUME"], var.scale_up_action)
-    error_message = "scale_up_action must be either START or RESUME"
+    condition     = var.mig_scale_up_size > 0
+    error_message = "mig_scale_up_size must be greater than 0"
   }
 }
 

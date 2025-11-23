@@ -1,18 +1,12 @@
-project_id = "your-gcp-project-id"
+project_id = "gcp-terraform-demo-474514"
 region     = "us-central1"
 
-# VM labels to identify which VMs to manage
-# Format: "key:value,key:value"
-vm_labels = "auto-schedule:true,environment:dev"
+# Managed Instance Group configuration
+mig_name   = "oracle-linux-mig"
+mig_region = "us-central1"
 
-# Zones to check for VMs
-vm_zones = "us-central1-a,us-central1-b,us-east1-b"
-
-# Scale down action: STOP (completely stop) or SUSPEND (suspend to disk)
-scale_down_action = "STOP"
-
-# Scale up action: START (start stopped VMs) or RESUME (resume suspended VMs)
-scale_up_action = "START"
+# Target size when scaling up (scales down to 0 on weekends)
+mig_scale_up_size = 3
 
 # Cron schedules (in Cloud Scheduler format)
 # Default: Scale down on Friday at 6 PM, scale up on Monday at 8 AM

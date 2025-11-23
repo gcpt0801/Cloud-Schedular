@@ -1,11 +1,21 @@
 output "function_name" {
   description = "Name of the Cloud Function"
-  value       = google_cloudfunctions2_function.vm_scheduler.name
+  value       = google_cloudfunctions2_function.mig_scheduler.name
 }
 
 output "function_url" {
   description = "URL of the Cloud Function"
-  value       = google_cloudfunctions2_function.vm_scheduler.service_config[0].uri
+  value       = google_cloudfunctions2_function.mig_scheduler.service_config[0].uri
+}
+
+output "mig_name" {
+  description = "Managed Instance Group being managed"
+  value       = var.mig_name
+}
+
+output "mig_region" {
+  description = "Region of the MIG"
+  value       = var.mig_region
 }
 
 output "scale_down_topic" {
