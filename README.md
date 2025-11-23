@@ -201,6 +201,8 @@ All required permissions are automated via Terraform - no manual setup needed!
 - Storage bucket access
 - Service agent permissions
 
+📖 **For detailed explanation of why each permission is needed, see [PERMISSIONS.md](PERMISSIONS.md)**
+
 ## 🛠️ Customization
 
 ### Change Schedule
