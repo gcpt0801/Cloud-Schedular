@@ -49,15 +49,6 @@ resource "google_project_iam_member" "compute_viewer" {
   member  = "serviceAccount:${google_service_account.mig_scheduler.email}"
 }
 
-# Grant Cloud Build Service Account the necessary permissions
-resource "google_project_iam_member" "cloudbuild_sa_permissions" {
-  project = var.project_id
-  role    = "roles/cloudfunctions.developer"
-  member  = "serviceAccount:${var.project_id}@cloudbuild.gserviceaccount.com"
-
-  depends_on = [google_project_service.required_apis]
-}
-
 # Create GCS bucket for Cloud Function source code
 resource "google_storage_bucket" "function_source" {
   name          = "${var.project_id}-vm-scheduler-source"
