@@ -10,7 +10,7 @@ resource "google_project_service" "required_apis" {
     "eventarc.googleapis.com",
     "logging.googleapis.com"
   ])
-  
+
   service            = each.key
   disable_on_destroy = false
 }
@@ -18,13 +18,13 @@ resource "google_project_service" "required_apis" {
 # Create Pub/Sub topics for scale up and scale down
 resource "google_pubsub_topic" "scale_down" {
   name = "mig-scale-down"
-  
+
   depends_on = [google_project_service.required_apis]
 }
 
 resource "google_pubsub_topic" "scale_up" {
   name = "mig-scale-up"
-  
+
   depends_on = [google_project_service.required_apis]
 }
 
@@ -54,9 +54,9 @@ resource "google_storage_bucket" "function_source" {
   name          = "${var.project_id}-vm-scheduler-source"
   location      = var.region
   force_destroy = true
-  
+
   uniform_bucket_level_access = true
-  
+
   depends_on = [google_project_service.required_apis]
 }
 
@@ -65,7 +65,7 @@ data "archive_file" "function_source" {
   type        = "zip"
   output_path = "${path.module}/../function-source.zip"
   source_dir  = "${path.module}/.."
-  
+
   excludes = [
     "terraform",
     ".git",
@@ -92,11 +92,11 @@ resource "google_cloudfunctions2_function" "vm_scheduler" {
   name        = "vm-scheduler"
   location    = var.region
   description = "Automated VM scheduler for scale up/down"
-  
+
   build_config {
     runtime     = "python311"
     entry_point = "vm_scheduler"
-    
+
     source {
       storage_source {
         bucket = google_storage_bucket.function_source.name
@@ -104,22 +104,22 @@ resource "google_cloudfunctions2_function" "vm_scheduler" {
       }
     }
   }
-  
+
   service_config {
     max_instance_count    = 1
     min_instance_count    = 0
     available_memory      = "256Mi"
     timeout_seconds       = var.function_timeout
     service_account_email = google_service_account.mig_scheduler.email
-    
+
     environment_variables = {
-      GCP_PROJECT        = var.project_id
-      MIG_NAME           = var.mig_name
-      MIG_REGION         = var.mig_region
-      MIG_SCALE_UP_SIZE  = tostring(var.mig_scale_up_size)
+      GCP_PROJECT       = var.project_id
+      MIG_NAME          = var.mig_name
+      MIG_REGION        = var.mig_region
+      MIG_SCALE_UP_SIZE = tostring(var.mig_scale_up_size)
     }
   }
-  
+
   event_trigger {
     trigger_region        = var.region
     event_type            = "google.cloud.pubsub.topic.v1.messagePublished"
@@ -127,7 +127,7 @@ resource "google_cloudfunctions2_function" "vm_scheduler" {
     retry_policy          = "RETRY_POLICY_RETRY"
     service_account_email = google_service_account.mig_scheduler.email
   }
-  
+
   depends_on = [
     google_project_service.required_apis,
     google_project_iam_member.compute_admin,
@@ -140,11 +140,11 @@ resource "google_cloudfunctions2_function" "mig_scheduler_scale_up" {
   name        = "mig-scheduler-scale-up"
   location    = var.region
   description = "Automated MIG scheduler for scale up"
-  
+
   build_config {
     runtime     = "python311"
     entry_point = "mig_scheduler"
-    
+
     source {
       storage_source {
         bucket = google_storage_bucket.function_source.name
@@ -152,22 +152,22 @@ resource "google_cloudfunctions2_function" "mig_scheduler_scale_up" {
       }
     }
   }
-  
+
   service_config {
     max_instance_count    = 1
     min_instance_count    = 0
     available_memory      = "256Mi"
     timeout_seconds       = var.function_timeout
     service_account_email = google_service_account.mig_scheduler.email
-    
+
     environment_variables = {
-      GCP_PROJECT        = var.project_id
-      MIG_NAME           = var.mig_name
-      MIG_REGION         = var.mig_region
-      MIG_SCALE_UP_SIZE  = tostring(var.mig_scale_up_size)
+      GCP_PROJECT       = var.project_id
+      MIG_NAME          = var.mig_name
+      MIG_REGION        = var.mig_region
+      MIG_SCALE_UP_SIZE = tostring(var.mig_scale_up_size)
     }
   }
-  
+
   event_trigger {
     trigger_region        = var.region
     event_type            = "google.cloud.pubsub.topic.v1.messagePublished"
@@ -175,7 +175,7 @@ resource "google_cloudfunctions2_function" "mig_scheduler_scale_up" {
     retry_policy          = "RETRY_POLICY_RETRY"
     service_account_email = google_service_account.mig_scheduler.email
   }
-  
+
   depends_on = [
     google_project_service.required_apis,
     google_project_iam_member.compute_admin,
@@ -210,17 +210,17 @@ resource "google_cloud_scheduler_job" "scale_down" {
   schedule         = var.scale_down_schedule
   time_zone        = var.timezone
   attempt_deadline = "320s"
-  
+
   pubsub_target {
     topic_name = google_pubsub_topic.scale_down.id
-    data       = base64encode(jsonencode({
+    data = base64encode(jsonencode({
       action     = "scale_down"
       project_id = var.project_id
       mig_name   = var.mig_name
       region     = var.mig_region
     }))
   }
-  
+
   depends_on = [
     google_project_service.required_apis,
     google_pubsub_topic_iam_member.scale_down_publisher
@@ -234,10 +234,10 @@ resource "google_cloud_scheduler_job" "scale_up" {
   schedule         = var.scale_up_schedule
   time_zone        = var.timezone
   attempt_deadline = "320s"
-  
+
   pubsub_target {
     topic_name = google_pubsub_topic.scale_up.id
-    data       = base64encode(jsonencode({
+    data = base64encode(jsonencode({
       action        = "scale_up"
       project_id    = var.project_id
       mig_name      = var.mig_name
@@ -245,7 +245,7 @@ resource "google_cloud_scheduler_job" "scale_up" {
       scale_up_size = var.mig_scale_up_size
     }))
   }
-  
+
   depends_on = [
     google_project_service.required_apis,
     google_pubsub_topic_iam_member.scale_up_publisher

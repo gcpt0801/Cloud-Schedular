@@ -25,7 +25,7 @@ variable "mig_scale_up_size" {
   description = "Target size when scaling up the MIG"
   type        = number
   default     = 3
-  
+
   validation {
     condition     = var.mig_scale_up_size > 0
     error_message = "mig_scale_up_size must be greater than 0"
