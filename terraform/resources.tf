@@ -140,8 +140,7 @@ resource "google_cloudfunctions2_function" "mig_scheduler" {
 
   depends_on = [
     google_project_service.required_apis,
-    google_project_iam_member.compute_admin,
-    google_project_iam_member.compute_viewer
+    google_project_iam_member.mig_scheduler_roles
   ]
 }
 
@@ -189,8 +188,7 @@ resource "google_cloudfunctions2_function" "mig_scheduler_scale_up" {
 
   depends_on = [
     google_project_service.required_apis,
-    google_project_iam_member.compute_admin,
-    google_project_iam_member.compute_viewer
+    google_project_iam_member.mig_scheduler_roles
   ]
 }
 
@@ -223,24 +221,17 @@ resource "google_cloud_run_service_iam_member" "mig_scheduler_scale_up_sa_invoke
   member   = "serviceAccount:${google_service_account.mig_scheduler.email}"
 }
 
-# Service account for Cloud Scheduler
-resource "google_service_account" "scheduler" {
-  account_id   = "vm-scheduler-invoker"
-  display_name = "VM Scheduler Invoker"
-  description  = "Service account for Cloud Scheduler to publish to Pub/Sub"
-}
-
-# Grant Pub/Sub Publisher role to scheduler service account
+# Grant Pub/Sub Publisher role to MIG scheduler service account (for Cloud Scheduler)
 resource "google_pubsub_topic_iam_member" "scale_down_publisher" {
   topic  = google_pubsub_topic.scale_down.name
   role   = "roles/pubsub.publisher"
-  member = "serviceAccount:${google_service_account.scheduler.email}"
+  member = "serviceAccount:${google_service_account.mig_scheduler.email}"
 }
 
 resource "google_pubsub_topic_iam_member" "scale_up_publisher" {
   topic  = google_pubsub_topic.scale_up.name
   role   = "roles/pubsub.publisher"
-  member = "serviceAccount:${google_service_account.scheduler.email}"
+  member = "serviceAccount:${google_service_account.mig_scheduler.email}"
 }
 
 # Cloud Scheduler job for scaling down MIG
